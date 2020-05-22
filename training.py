@@ -4,9 +4,9 @@ import torch.optim as optim
 import pandas as pd
 from typing import Optional
 
-from lstm_cds.model import LSTMModel
-from lstm_cds.loader import load_genbank
-from lstm_cds.functional import binary_accuracy
+from lstm_dna.model import LSTMModel
+from lstm_dna.loader import load_genbank, divide_sequence
+from lstm_dna.functional import binary_accuracy
 
 
 def train(
@@ -20,12 +20,17 @@ def train(
         training_log_csv: str,
         cuda: bool):
 
-    X, Y = load_genbank(gbks=gbk, seq_len=seq_len, cuda=cuda)
+    X, Y = load_genbank(gbks=gbk, cuda=cuda)
+    X, Y = divide_sequence(X=X, Y=Y, seq_len=seq_len)
 
     if in_model_file is not None:
         lstm_model = torch.load(in_model_file)
     else:
-        lstm_model = LSTMModel(cuda=cuda)
+        lstm_model = LSTMModel(
+            sizes=[4, 128, 64, 1],
+            batch_first=True,
+            bidirectional=True,
+            cuda=cuda)
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(lstm_model.parameters(), lr=learning_rate)
