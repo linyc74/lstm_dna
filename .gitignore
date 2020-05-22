@@ -1,0 +1,10 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# PyCharm
+.idea/
+
+# Data / misc
+data/
+todo.txt
