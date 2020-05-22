@@ -1,7 +1,7 @@
 import torch
 import shutil
 import unittest
-from lstm_cds.loader import load_genbank, divide_sequence
+from lstm_dna.loader import load_genbank, divide_sequence
 from .setup_dirs import setup_dirs
 
 
