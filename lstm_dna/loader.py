@@ -120,7 +120,8 @@ def divide_sequence(
         Y: 3D tensor, size (n_samples, seq_len, 1), dtype=float
     """
 
-    _, full_len, _ = X.size()
+    _, full_len, input_size = X.size()
+    _, full_len, output_size = Y.size()
 
     quotient = full_len // seq_len
     remainder = full_len % seq_len
@@ -130,8 +131,17 @@ def divide_sequence(
     else:
         n_samples = quotient + 1
         pad_len = seq_len - remainder
-        X = torch.cat([X, torch.zeros(1, pad_len, 4, dtype=torch.float)], dim=1)
-        Y = torch.cat([Y, torch.zeros(1, pad_len, 1, dtype=torch.float)], dim=1)
+
+        X_pad = torch.zeros(1, pad_len, input_size, dtype=torch.float)
+        if X.is_cuda:
+            X_pad = X_pad.cuda()
+
+        Y_pad = torch.zeros(1, pad_len, output_size, dtype=torch.float)
+        if Y.is_cuda:
+            Y_pad = Y_pad.cuda()
+
+        X = torch.cat([X, X_pad], dim=1)
+        Y = torch.cat([Y, Y_pad], dim=1)
 
     X = X.view(n_samples, seq_len, 4)
     Y = Y.view(n_samples, seq_len, 1)
