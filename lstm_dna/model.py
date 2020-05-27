@@ -53,6 +53,9 @@ class LSTMModel(nn.Module):
 
         if cuda:
             self.cuda()
+            self.is_cuda = True
+        else:
+            self.is_cuda = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
