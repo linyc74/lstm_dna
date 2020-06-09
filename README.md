@@ -74,3 +74,17 @@ Training results of different model architectures:
 | 1     | 64              | 0.04560       | 98.64%            | 0.05117   | 98.49%        |
 | 2     | 128             | 0.04480       | 98.66%            | 0.05085   | 98.53%        |
 | 3     | 128, 64         | 0.03655       | 99.86%            | 0.04016   | <span style="color:red"> 98.81% </span> |
+
+## Nucleotide-level prediction
+
+It is computationally inefficient and numerically unstable to run the whole genome sequence as a single forward pass.
+Genome sequences were divided into small segments (1024 nucleotides), predicted independently, and rejoined together.
+At either end of a segment, predictions are inherently worse due to the lack or memory and context.
+To resolve this problem, predictions were made with a coverage of 4,
+such that segments were shifted by 256 nucleotides (1024/4) for each coverage.
+Even though a nucleotide may be located close to the end of a particular segment, i.e. context-less,
+predictions from other shifted segments have context and should be more accurate. 
+The 4 predictions were averaged as the final prediction result, in which each nucleotide is assigned either 0 (not CDS) or 1 (CDS).
+
+## Gene-level prediction
+

@@ -1,30 +1,23 @@
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 from .model import LSTMModel
-from .functional import binary_accuracy
 
 
 class Trainer:
     """
     Automatically trains a model until it gets the minimum test loss
 
-    The minimum test loss is deterined by N consecutive epochs with higher losses
-        after the minimum test loss is achieved,
-        where N = <overtrain_epochs>
+    The minimum test loss is determined by N consecutive epochs
+        after the minimum test loss is achieved, where N = <overtrain_epochs>
 
     The (best) model with minimum test loss is returned by the .train() method
     """
 
     epoch: int = 0
-    min_test_loss: Optional[float] = None
-    overtrained_losses: List[float] = []
+    min_test_loss: Optional[float] = None  # The minimum test loss achieved so far
+    overtrained_losses: List[float] = []   # Higher loss values that are after min_test_loss
     best_model_state_dict: dict = {}
-
-    # min_test_loss:
-    #     The minimum test loss achieved so far
-    # overtrained_losses:
-    #     A list of losses that are greater than min_test_loss, and take place after min_test_loss
 
     def __init__(
             self,
@@ -35,13 +28,14 @@ class Trainer:
             Y_test: torch.Tensor,
             criterion,
             optimizer,
+            accuracy,
             mini_batch_size: int,
-            writer: SummaryWriter):
+            log_dir: str):
         """
-        X_train: (n_training_samples, seq_len, 4)
-        Y_train: (n_training_samples, seq_len, 1)
-        X_test: (n_test_samples, seq_len, 4)
-        Y_test: (n_test_samples, seq_len, 1)
+        X_train: (n_samples, ...)
+        Y_train: (n_samples, ...)
+        X_test: (n_samples, ...)
+        Y_test: (n_samples, ...)
         """
 
         self.model = model
@@ -51,20 +45,21 @@ class Trainer:
         self.Y_test = Y_test
         self.criterion = criterion
         self.optimizer = optimizer
+        self.accuracy = accuracy
         self.mini_batch_size = mini_batch_size
-        self.writer = writer
+        self.log_dir = log_dir
 
-    def train_one_epoch(self):
+    def __train_one_epoch(self):
         mb = self.mini_batch_size
-        n_samples, _, _ = self.X_train.size()
+        n_samples = self.X_train.size()[0]
 
         i = 0
         while i < n_samples:
             start = i
-            end = min(i + mb, n_samples)  # the last mini_batch < mini_batch_size
+            end = min(i + mb, n_samples)  # the last mini batch < mini_batch_size
 
-            x = self.X_train[start:end, :, :]
-            y = self.Y_train[start:end, :, :]
+            x = self.X_train[start:end]
+            y = self.Y_train[start:end]
 
             if self.model.is_cuda:
                 x = x.cuda()
@@ -79,68 +74,23 @@ class Trainer:
 
             i += mb
 
-    def tensorboard(
+    def __tensorboard(
             self,
-            tag: str,
-            loss: float,
-            accuracy: float):
+            writer: SummaryWriter,
+            values: Dict[str, float]):
 
-        self.writer.add_scalar(
-            tag=f'Loss ({tag})', scalar_value=loss, global_step=self.epoch)
+        for key, val in values.items():
+            tag = key.replace('_', ' ').title()
+            writer.add_scalar(
+                tag=tag, scalar_value=val, global_step=self.epoch)
 
-        self.writer.add_scalar(
-            tag=f'Accuracy ({tag})', scalar_value=accuracy, global_step=self.epoch)
-
-    def validate(self) -> float:
-
-        mb = self.mini_batch_size
-        scalars = {}
-
-        with torch.no_grad():
-            for set_ in ['train', 'test']:
-                X = getattr(self, f'X_{set_}')
-                Y = getattr(self, f'Y_{set_}')
-
-                n_samples, _, _ = X.size()
-
-                i = 0
-                total_loss = 0
-                total_accuracy = 0
-                while i < n_samples:
-                    start = i
-                    end = min(i + mb, n_samples)  # the last mini_batch < mini_batch_size
-
-                    x = X[start:end, :, :]
-                    y = Y[start:end, :, :]
-
-                    if self.model.is_cuda:
-                        x = x.cuda()
-                        y = y.cuda()
-
-                    y_hat = self.model(x)
-                    loss = self.criterion(y_hat, y)
-                    accuracy = binary_accuracy(torch.sigmoid(y_hat), y)
-
-                    total_loss += loss.item() * (end - start)
-                    total_accuracy += accuracy * (end - start)
-
-                    i += mb
-
-                scalars[f'{set_}_loss'] = total_loss / n_samples
-                scalars[f'{set_}_accuracy'] = total_accuracy / n_samples
-
-                self.tensorboard(
-                    tag=set_,
-                    loss=scalars[f'{set_}_loss'],
-                    accuracy=scalars[f'{set_}_accuracy']
-                )
-
-        return scalars['test_loss']
-
-    def decide(
+    def __decide(
             self,
             test_loss: float,
             overtrain_epochs: int) -> bool:
+        """
+        Returns complete or not
+        """
 
         if self.min_test_loss is None:
             self.min_test_loss = test_loss
@@ -161,25 +111,80 @@ class Trainer:
         else:
             return False
 
+    def __compute_loss_accuracy(
+            self,
+            X: torch.Tensor,
+            Y: torch.Tensor) -> Tuple[float, float]:
+
+        mb = self.mini_batch_size
+        n_samples = X.size()[0]
+
+        i = 0
+        total_loss, total_accuracy = 0, 0
+        while i < n_samples:
+            start = i
+            end = min(i + mb, n_samples)  # the last mini batch < mini_batch_size
+
+            x = X[start:end]
+            y = Y[start:end]
+
+            if self.model.is_cuda:
+                x = x.cuda()
+                y = y.cuda()
+
+            with torch.no_grad():
+                y_hat = self.model(x)
+
+            loss = self.criterion(y_hat, y)
+            accuracy = self.accuracy(y_hat, y)
+
+            total_loss += loss.item() * (end - start)
+            total_accuracy += accuracy * (end - start)
+
+            i += mb
+
+        avg_loss = total_loss / n_samples
+        avg_accuracy = total_accuracy / n_samples
+
+        return avg_loss, avg_accuracy
+
+    def validate(self) -> Dict[str, float]:
+
+        values = {}
+
+        for set_ in ['train', 'test']:
+            X = getattr(self, f'X_{set_}')
+            Y = getattr(self, f'Y_{set_}')
+
+            loss, accuracy = self.__compute_loss_accuracy(X=X, Y=Y)
+
+            values[f'{set_}_loss'] = loss
+            values[f'{set_}_accuracy'] = accuracy
+
+        return values
+
     def train(
             self,
             max_epochs: int,
             overtrain_epochs: int):
 
+        writer = SummaryWriter(log_dir=self.log_dir)
+
         while self.epoch < max_epochs:
 
-            self.train_one_epoch()
+            self.__train_one_epoch()
+            values = self.validate()
+            self.__tensorboard(writer=writer, values=values)
 
-            test_loss = self.validate()
-
-            complete = self.decide(
-                test_loss=test_loss,
+            complete = self.__decide(
+                test_loss=values['test_loss'],
                 overtrain_epochs=overtrain_epochs)
-
             if complete:
                 break
 
             self.epoch += 1
+
+        writer.close()
 
         self.model.load_state_dict(self.best_model_state_dict)
         return self.model

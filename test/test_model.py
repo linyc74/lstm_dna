@@ -10,11 +10,10 @@ class TestLSTMModel(unittest.TestCase):
     def setUp(self):
         self.indir, self.workdir, self.outdir = setup_dirs(fpath=__file__)
 
-        self.lstm_model = LSTMModel(
-            sizes=[1000, 128, 64, 32, 10],
-            batch_first=True,
+        self.model = LSTMModel(
+            sizes=[4, 128, 64, 32, 2],
             bidirectional=True,
-            output_activation='softmax',
+            softmax_output=True,
             cuda=False)
 
     def tearDown(self):
@@ -24,14 +23,20 @@ class TestLSTMModel(unittest.TestCase):
     def test___init__(self):
         expected = f'''\
 LSTMModel(
-  (lstm_1): LSTM(1000, 128, batch_first=True, bidirectional=True)
-  (lstm_2): LSTM(256, 64, batch_first=True, bidirectional=True)
-  (lstm_3): LSTM(128, 32, batch_first=True, bidirectional=True)
-  (fc): Linear(in_features=64, out_features=10, bias=True)
+  (lstm_layers): ModuleList(
+    (0): LSTM(4, 128, batch_first=True, bidirectional=True)
+    (1): LSTM(256, 64, batch_first=True, bidirectional=True)
+    (2): LSTM(128, 32, batch_first=True, bidirectional=True)
+  )
+  (fc): Linear(in_features=64, out_features=2, bias=True)
 )'''
-        self.assertEqual(expected, str(self.lstm_model))
+        self.assertEqual(expected, str(self.model))
 
     def test_forward(self):
-        x = torch.randn(10, 100, 1000)
-        y_hat = self.lstm_model(x)
-        self.assertTupleEqual((10, 100, 10), y_hat.size())
+        x = torch.randn(10, 100, 4)  # (batch_size, seq_len, input_size)
+
+        y_hat = self.model(x)
+
+        size = (10, 2, 100)  # (batch_size, output_size, seq_len)
+        self.assertTupleEqual(size, y_hat.size())
+

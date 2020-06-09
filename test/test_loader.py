@@ -16,17 +16,22 @@ class TestLoader(unittest.TestCase):
 
     def test_load_genbank(self):
 
-        X, Y = load_genbank(gbks='./data/GCF_000008525.1_ASM852v1_genomic.gbff')
+        X, Y = load_genbank(
+            gbks=f'{self.indir}/GCF_000008525.1_ASM852v1_genomic.gbff',
+            label_length=90)
 
-        self.assertTupleEqual((1, 3335734, 4), X.size())
-        self.assertTupleEqual((1, 3335734, 1), Y.size())
+        self.assertTupleEqual((3335734, 4), X.size())
+        self.assertTupleEqual((3335734, ), Y.size())
+        self.assertEqual(torch.float, X.dtype)
+        self.assertEqual(torch.long, Y.dtype)
 
     def test_divide_sequence(self):
 
-        X = torch.randn(1, 100, 4)
-        Y = torch.randn(1, 100, 1)
+        x = torch.randn(100, 4)
 
-        X, Y = divide_sequence(X=X, Y=Y, seq_len=3)
-
-        self.assertTupleEqual((34, 3, 4), X.size())
-        self.assertTupleEqual((34, 3, 1), Y.size())
+        for pad, expected in [
+            (True, (34, 3, 4)),
+            (False, (33, 3, 4))
+        ]:
+            size = divide_sequence(x, seq_len=3, pad=pad).size()
+            self.assertTupleEqual(expected, size)

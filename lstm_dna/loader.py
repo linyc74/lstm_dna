@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
 import ngslite as ngs
@@ -20,33 +21,35 @@ def dna_to_one_hot(seq: str) -> torch.Tensor:
     return F.one_hot(torch.tensor(x)).float()
 
 
-def get_cds_labels(chromosome: ngs.Chromosome) -> torch.Tensor:
+def get_cds_labels(
+        chromosome: ngs.Chromosome,
+        label_length: Optional[int]) -> torch.Tensor:
     """
     For each genome position, label whether it's CDS or not (0 or 1)
 
     Returns:
-        1D tensor, size=(len(chromosome), ), dtype=float
+        1D tensor, size=(len(chromosome), ), dtype=torch.long
     """
-    labels = torch.zeros(len(chromosome.sequence))
+    labels = torch.zeros(len(chromosome.sequence), dtype=torch.long)
 
     for feature in chromosome.feature_array:
         if feature.type != 'CDS':
             continue
         if feature.strand == '-':
             continue
-        start = feature.start - 1
-        end = feature.end
-        labels[start: end] = 1
 
-    return labels
+        from_ = feature.start - 1
+        to_ = (from_ + label_length) if label_length else feature.end
+
+        labels[from_: to_] = 1
+
+    return labels.long()
 
 
 def load_genbank(
         gbks: Union[str, List[str]],
-        cuda: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+        label_length: Optional[int]) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Convert genbank file(s) to LSTM 3D tensors
-
     For X, DNA sequence is tokenized to 4 nucleotides [A, C, G, T]
 
     For Y, CDS on '+' strand is labeled as 1, otherwise 0
@@ -57,13 +60,14 @@ def load_genbank(
         gbks:
             Path(s) to genbank file(s)
 
-        cuda:
-            GPU or not
+        label_length:
+            Length to be labeled positive from the start nucleotide of a CDS
+            If None, label_length = CDS length
 
     Returns:
-        X: 3D tensor, size=(1, seq_len, 4), dtype=float
+        X: 2D tensor, size=(seq_len, 4), dtype=torch.float
 
-        Y: 3D tensor, size=(1, seq_len, 1), dtype=float
+        Y: 1D tensor, size=(seq_len, ), dtype=torch.long
     """
 
     if type(gbks) is str:
@@ -77,12 +81,16 @@ def load_genbank(
     for chromosome in chromosomes:
 
         X_f = dna_to_one_hot(seq=chromosome.sequence)
-        Y_f = get_cds_labels(chromosome=chromosome)
+        Y_f = get_cds_labels(
+            chromosome=chromosome,
+            label_length=label_length)
 
         chromosome.reverse()
 
         X_r = dna_to_one_hot(seq=chromosome.sequence)
-        Y_r = get_cds_labels(chromosome=chromosome)
+        Y_r = get_cds_labels(
+            chromosome=chromosome,
+            label_length=label_length)
 
         Xs += [X_f, X_r]
         Ys += [Y_f, Y_r]
@@ -90,60 +98,84 @@ def load_genbank(
     X = torch.cat(Xs, dim=0)
     Y = torch.cat(Ys, dim=0)
 
-    X = X.view(1, -1, 4)  # 2D -> 3D
-    Y = Y.view(1, -1, 1)  # 1D -> 3D
-
-    if cuda:
-        X = X.cuda()
-        Y = Y.cuda()
-
     return X, Y
 
 
 def divide_sequence(
-        X: torch.tensor,
-        Y: torch.tensor,
-        seq_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        x: torch.Tensor,
+        seq_len: int,
+        pad: bool) -> torch.Tensor:
     """
     Break full_len -> n_samples * seq_len
 
     Args:
-        X: 3D tensor, size (1, full_len, 4), dtype=float
+        x:
+            tensor: (full_len, ...)
 
-        Y: 3D tensor, size (1, full_len, 1), dtype=float
+        seq_len:
+            Divided sequence length, the second dimension of the output tensor
 
-        seq_len: input sequence length for the LSTM model
+        pad:
+            Pad with zeros or discard the remainder sequence
 
     Returns:
-        X: 3D tensor, size (n_samples, seq_len, 4), dtype=float
-
-        Y: 3D tensor, size (n_samples, seq_len, 1), dtype=float
+        tensor, where the first input dimension (full_len, ) is split into (n_samples, seq_len)
     """
 
-    _, full_len, input_size = X.size()
-    _, full_len, output_size = Y.size()
+    full_len = x.size()[0]
+    k_dims = list(x.size()[1:])
 
-    quotient = full_len // seq_len
     remainder = full_len % seq_len
+    divisible = remainder == 0
 
-    if remainder == 0:
-        n_samples = quotient
-    else:
-        n_samples = quotient + 1
-        pad_len = seq_len - remainder
+    if not divisible:
+        if pad:
+            pad_len = seq_len - remainder
 
-        X_pad = torch.zeros(1, pad_len, input_size, dtype=torch.float)
-        if X.is_cuda:
-            X_pad = X_pad.cuda()
+            pad_size = [pad_len] + k_dims
+            x_pad = torch.zeros(size=pad_size, dtype=x.dtype)
 
-        Y_pad = torch.zeros(1, pad_len, output_size, dtype=torch.float)
-        if Y.is_cuda:
-            Y_pad = Y_pad.cuda()
+            if x.is_cuda:
+                x_pad = x_pad.cuda()
 
-        X = torch.cat([X, X_pad], dim=1)
-        Y = torch.cat([Y, Y_pad], dim=1)
+            x = torch.cat([x, x_pad], dim=0)
 
-    X = X.view(n_samples, seq_len, 4)
-    Y = Y.view(n_samples, seq_len, 1)
+        else:  # discard remainder
+            x = x[0:-remainder]
+
+    new_size = [-1, seq_len] + k_dims
+
+    return x.view(*new_size)
+
+
+def split(
+        x: torch.Tensor,
+        training_fraction: float,
+        dim: int) \
+        -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Split into training and test sets on the <dim> dimension
+    """
+
+    n_samples = x.size()[0]
+
+    train_size = int(n_samples * training_fraction)
+    test_size = n_samples - train_size
+
+    x_train, x_test = torch.split(x, [train_size, test_size], dim=dim)
+
+    return x_train, x_test
+
+
+def shuffle(
+        X: torch.Tensor,
+        Y: torch.Tensor) \
+        -> Tuple[torch.Tensor, torch.Tensor]:
+
+    n_samples = X.shape[0]
+    rand_order = torch.randperm(n_samples)
+
+    X = X[rand_order]
+    Y = Y[rand_order]
 
     return X, Y

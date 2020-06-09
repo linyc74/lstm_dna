@@ -1,7 +1,33 @@
 import torch
-from typing import List
+from typing import List, Callable
 from lstm_dna.model import LSTMModel
-from lstm_dna.loader import dna_to_one_hot
+from lstm_dna.loader import dna_to_one_hot, divide_sequence
+
+
+def binary_output_to_label(y: torch.Tensor) -> torch.Tensor:
+    """
+    Args:
+        y: 3D tensor (batch_size, seq_len, output_size)
+           output_size = 1
+
+    Returns:
+        y: 2D tensor (batch_size, seq_len)
+    """
+    n_samples, seq_len, output_size = y.shape
+    assert output_size == 1
+    return y.view(n_samples, seq_len)
+
+
+def softmax_output_to_label(y: torch.Tensor) -> torch.Tensor:
+    """
+    Args:
+        y: 3D tensor (batch_size, output_size, seq_len)
+           output_size = n_classes
+
+    Returns:
+        y: 2D tensor (batch_size, seq_len)
+    """
+    return y.argmax(dim=1)
 
 
 class Predictor:
@@ -9,11 +35,18 @@ class Predictor:
     def __init__(
             self,
             model: LSTMModel,
+            output_to_label: Callable,
             window: int = 1024,
+            coverage: int = 4,
             mini_batch_size: int = 32):
         """
         Args:
             model
+
+            output_to_label:
+                A callable function that converts the model output (3D tensor) to label (2D tensor)
+                2D tensor: (batch_size, seq_len)
+                The model output depends on the type or prediction, binary or softmax
 
             window:
                 Input sequence length for LSTM model
@@ -23,46 +56,12 @@ class Predictor:
         """
 
         self.model = model
+        self.output_to_label = output_to_label
         self.window = window
+        self.coverage = coverage
         self.mini_batch_size = mini_batch_size
 
-    def divide_windows(
-            self,
-            X: torch.tensor) -> torch.Tensor:
-        """
-        Break full_len -> n_samples * self.window
-
-        Args:
-            X: 3D tensor, size (1, full_len, 4), dtype=float
-
-        Returns:
-            X: 3D tensor, size (n_samples, self.window, 4), dtype=float
-        """
-        n, full_len, input_size = X.size()
-
-        assert n == 1
-        assert input_size == 4
-
-        quotient = full_len // self.window
-        remainder = full_len % self.window
-
-        if remainder == 0:
-            n_samples = quotient
-        else:
-            n_samples = quotient + 1
-            pad_len = self.window - remainder
-
-            X_pad = torch.zeros(1, pad_len, input_size, dtype=torch.float)
-            if X.is_cuda:
-                X_pad = X_pad.cuda()
-
-            X = torch.cat([X, X_pad], dim=1)
-
-        X = X.view(n_samples, self.window, 4)
-
-        return X
-
-    def forward_pass(
+    def __forward_pass(
             self,
             X: torch.Tensor) -> torch.Tensor:
         """
@@ -73,23 +72,19 @@ class Predictor:
         Flat-in, flat-out
 
         Args:
-            X: 3D tensor, size (1, full_len, 4), dtype=float
+            X: 2D tensor, size (full_len, 4), dtype=torch.float
 
         Returns:
-            Y: 3D tensor, size (1, full_len, 1), dtype=float
+            Y: 1D tensor, size (full_len, ), dtype=torch.float
         """
 
-        n, full_len, _ = X.size()
+        full_len = X.shape[0]
 
-        assert n == 1
-
-        X = self.divide_windows(X=X)
+        X = divide_sequence(X, seq_len=self.window, pad=True)  # 2D -> 3D
 
         n_samples, window, _ = X.size()
 
-        assert window == self.window
-
-        Y = torch.zeros(n_samples, window, 1)
+        Y = torch.zeros(n_samples, window)  # 2D
 
         i = 0
         mb = self.mini_batch_size
@@ -103,38 +98,40 @@ class Predictor:
                 x = x.cuda()
 
             with torch.no_grad():
-                y = torch.sigmoid(self.model(x))  # sigmoid probability
+                y_hat = self.model(x)
+                y = self.output_to_label(y_hat)  # 3D -> 2D tensor (batch_size, window)
 
-            Y[start:end, :, :] = y[:, :, :]
+            Y[start:end, :] = y[:, :]
 
             i += mb
 
-        Y = Y.view(1, -1, 1)  # flatten -> (1, full_len)
-        Y = Y[:, 0:full_len, :]  # remove padded sequence
+        Y = Y.view(-1)  # 2D (n_samples, seq_len) -> 1D (full_len)
+        Y = Y[0:full_len]  # remove padded sequence
 
-        return Y
+        return Y.float()
 
-    def predict(
-            self,
-            dna: str,
-            coverage: int = 4) -> List[bool]:
+    def predict(self, dna: str) -> List[bool]:
+        """
+        Args:
+            dna: DNA sequence
+
+        Returns:
+            List of bool, length = len(dna)
+        """
 
         full_len = len(dna)
 
         X = dna_to_one_hot(seq=dna)
         assert X.size() == (full_len, 4)
 
-        X = X.view(1, -1, 4)
-        assert X.size() == (1, full_len, 4)
+        Y_sum = torch.zeros(full_len)
+        Y_count = torch.zeros(full_len)
 
-        Y_sum = torch.zeros(1, full_len, 1)
-        Y_count = torch.zeros(1, full_len, 1)
-
-        offset: int = self.window // coverage
-        for i in range(coverage):
-            start = i * offset
-            Y_sum[:, start:, :] += self.forward_pass(X=X[:, start:, :])
-            Y_count[:, start:, :] += 1
+        shift: int = self.window // self.coverage
+        for i in range(self.coverage):
+            start = i * shift
+            Y_sum[start:] += self.__forward_pass(X=X[start:])
+            Y_count[start:] += 1
 
         Y = Y_sum / Y_count
         Y = Y.view(-1)

@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import List, Optional
+from typing import List
+
+
+BATCH_FIRST = True
 
 
 class LSTMModel(nn.Module):
@@ -9,26 +11,21 @@ class LSTMModel(nn.Module):
     def __init__(
             self,
             sizes: List[int],
-            batch_first: bool,
             bidirectional: bool,
-            output_activation: Optional[str] = None,
-            cuda: bool = False):
+            softmax_output: bool,
+            cuda: bool):
         """
         sizes: [input_size, hidden_size_1, hidden_size_2, ..., output_size]
         """
-
         super().__init__()
 
         assert len(sizes) >= 3
-        assert output_activation in [None, 'sigmoid', 'softmax']
 
-        self.output_activation = output_activation
-        self.n_layers = len(sizes) - 2  # number of LSTM layers
+        self.lstm_layers = nn.ModuleList()
 
         for i in range(len(sizes) - 2):
 
-            input_size = sizes[i]
-            hidden_size = sizes[i+1]
+            input_size, hidden_size = sizes[i:i+2]
 
             if i > 0 and bidirectional:
                 input_size *= 2
@@ -36,13 +33,12 @@ class LSTMModel(nn.Module):
             lstm = nn.LSTM(
                 input_size=input_size,
                 hidden_size=hidden_size,
-                batch_first=batch_first,
+                batch_first=BATCH_FIRST,
                 bidirectional=bidirectional)
 
-            setattr(self, f'lstm_{i+1}', lstm)
+            self.lstm_layers.append(lstm)
 
-        in_features = sizes[-2]
-        out_features = sizes[-1]
+        in_features, out_features = sizes[-2:]
 
         if bidirectional:
             in_features *= 2
@@ -53,29 +49,28 @@ class LSTMModel(nn.Module):
 
         if cuda:
             self.cuda()
-            self.is_cuda = True
-        else:
-            self.is_cuda = False
+        self.is_cuda = cuda
+
+        self.softmax_output = softmax_output
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: (n_samples, seq_len, input_size)
+            x:
+                (batch_size, seq_len, input_size)
 
         Return:
-            y_hat: (n_samples, seq_len, output_size)
+            y_hat:
+                (batch_size, seq_len, output_size)
+
+                If self.softmax_output = True, (batch_size, output_size, seq_len)
         """
-        for i in range(self.n_layers):
-            lstm = getattr(self, f'lstm_{i+1}')
+        for i, lstm in enumerate(self.lstm_layers):
             x, _ = lstm(x)
 
-        x = self.fc(x)
+        y_hat = self.fc(x)
 
-        if self.output_activation is None:
-            y_hat = x
-        elif self.output_activation == 'sigmoid':
-            y_hat = F.sigmoid(x)
-        else:  # softmax
-            y_hat = F.softmax(x, dim=2)
+        if self.softmax_output:
+            y_hat = y_hat.transpose(1, 2)
 
         return y_hat
