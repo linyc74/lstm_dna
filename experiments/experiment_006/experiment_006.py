@@ -2,8 +2,8 @@ import os
 import torch
 from ngslite import get_files, read_genbank, write_genbank, rev_comp, Chromosome
 from lstm_dna.model import LSTMModel
-from lstm_dna.predictor import Predictor, binary_output_to_label
 from lstm_dna.annotate import CDSAnnotator
+from lstm_dna.predictor import Predictor, binary_output_to_label
 
 
 EXPERIMENT_NAME = f'{os.path.basename(__file__)[:-3]}'
@@ -11,7 +11,7 @@ EXPERIMENT_NAME = f'{os.path.basename(__file__)[:-3]}'
 
 def load_model(file: str, cuda: bool) -> LSTMModel:
 
-    model = torch.load(file)
+    model = torch.load(file, map_location=torch.device('cpu'))
 
     # Because source code was changed, need to unpack the parameters and
     #   load them into a newly instantiated LSTMModel
@@ -62,7 +62,7 @@ def main():
 
     model_file = '../experiment_003/models/experiment_003_model_3.model'
     gbkdir = '../data'
-    cuda = True
+    cuda = torch.cuda.is_available()
     min_protein_len = 50
     outdir = './outdir'
 
