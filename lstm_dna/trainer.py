@@ -6,16 +6,16 @@ from .model import LSTMModel
 
 class Trainer:
     """
-    Automatically trains a model until it gets the minimum test loss
+    Automatically trains a model until it gets the minimum experiment_007 loss
 
-    The minimum test loss is determined by N consecutive epochs
-        after the minimum test loss is achieved, where N = <overtrain_epochs>
+    The minimum experiment_007 loss is determined by N consecutive epochs
+        after the minimum experiment_007 loss is achieved, where N = <overtrain_epochs>
 
-    The (best) model with minimum test loss is returned by the .train() method
+    The (best) model with minimum experiment_007 loss is returned by the .train() method
     """
 
     epoch: int = 0
-    min_test_loss: Optional[float] = None  # The minimum test loss achieved so far
+    min_test_loss: Optional[float] = None  # The minimum experiment_007 loss achieved so far
     overtrained_losses: List[float] = []   # Higher loss values that are after min_test_loss
     best_model_state_dict: dict = {}
 
@@ -152,7 +152,7 @@ class Trainer:
 
         values = {}
 
-        for set_ in ['train', 'test']:
+        for set_ in ['train', 'experiment_007']:
             X = getattr(self, f'X_{set_}')
             Y = getattr(self, f'Y_{set_}')
 
