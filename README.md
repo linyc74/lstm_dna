@@ -79,7 +79,7 @@ Training results of different model architectures:
 
 It is computationally inefficient and numerically unstable to run the whole genome sequence as a single forward pass.
 Thus, genome sequences were divided into small segments (1024 nucleotides), predicted independently, and rejoined together.
-However, at either end of every segment, predictions are inherently worse due to the lack or memory and context.
+However, at either end of each segment, predictions are inherently worse due to lack or memory and context.
 To resolve this problem, predictions were made with a coverage of 4,
 such that segments were shifted by 256 nucleotides (1024/4) for each coverage.
 Even though a nucleotide may be located close to the end of a particular segment, i.e. context-less,
@@ -88,14 +88,17 @@ The 4 predictions were averaged as the final prediction result, in which each nu
 
 ## Gene-level prediction
 
-Contiguous coding sequence (CDS) features were inferred from nucleotide-level labels and heuristic rules of molecular biology.
+Contiguous coding sequence (CDS) features were inferred from nucleotide-level labels using heuristic rules of molecular biology.
 First, contiguous segments of positive (labeled "1") nucleotides were generated and encoded by the start and end positions.
 In a simple scenario, one contiguous segment represents a coding sequence without any stop codon interrupting the translation to protein sequence.
-However, there are more complex scenarios where stop codons were present in the middle of a segment.
+However, there are more complex scenarios where stop codons are present in the middle of a segment.
 This is usually due to overlap between two CDS, where the second CDS starts before the first CDS terminates at the stop codon.
-If the second CDS is not in-frame with the first one, then the frame-shift effect would create any "wrong" stop codons in the middle of a segment.
+If the second CDS is not in-frame with the first one, then the frame-shift effect would create any false stop codons in the middle of a segment.
 
-To resolve the problem of overlapping CDS, I implemented a heuristic algorithm to capture all of the long CDS present in a given segment. The pseudocode of the CDS searching algorithm is shown in Box 1. Briefly, it iteratively searches for the longest CDS segments until the input DNA segment (or region) is covered by more than a target fraction, which is usually set to 90%.
+To resolve the problem of overlapping CDS, I implemented a heuristic algorithm to capture long CDS features present in a given segment.
+The pseudocode of the CDS searching algorithm is shown in Box 1.
+Briefly, it iteratively searches for the longest CDS segments,
+until the input DNA segment (or region) is covered by more than a target fraction, usually set to 90%.
 
 #### Box 1
 
@@ -119,4 +122,11 @@ To resolve the problem of overlapping CDS, I implemented a heuristic algorithm t
 
     Return the output list of CDS
 
-## Evaluation of predicted CDS
+The following figure shows overlap between true and predicted codon positions in each bacterial genome.
+Counts were shown with percentage of total number of codons in parenthesis.
+
+![Venn diagram genomic condon positions](./experiments/experiment_007/experiment_007.png)
+
+A genomic region of *E. coli* showing high accuracy of CDS prediction.
+
+![Gene diagram](./experiments/experiment_008/experiment_008.png)
