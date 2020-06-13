@@ -75,7 +75,7 @@ Training results of different model architectures:
 | 2     | 128             | 0.04480       | 98.66%            | 0.05085   | 98.53%        |
 | 3     | 128, 64         | 0.03655       | 99.86%            | 0.04016   | <span style="color:red"> 98.81% </span> |
 
-## Nucleotide-level prediction
+## Nucleotide-level Prediction
 
 It is computationally inefficient and numerically unstable to run the whole genome sequence as a single forward pass.
 Thus, genome sequences were divided into small segments (1024 nucleotides), predicted independently, and rejoined together.
@@ -86,7 +86,7 @@ Even though a nucleotide may be located close to the end of a particular segment
 predictions from other shifted segments have context and should be more accurate. 
 The 4 predictions were averaged as the final prediction result, in which each nucleotide is assigned either 0 (not CDS) or 1 (CDS).
 
-## Gene-level prediction
+## Gene-level Prediction
 
 Contiguous coding sequence (CDS) features were inferred from nucleotide-level labels using heuristic rules of molecular biology.
 First, contiguous segments of positive (labeled "1") nucleotides were generated and encoded by the start and end positions.
@@ -110,23 +110,27 @@ until the input DNA segment (or region) is covered by more than a target fractio
 
     For each translation:
         Use stop codon (*) to split into continuous segments of CDS
-        Append to the list of all CDS
+        Append to the all_CDS_list
 
-    Sort all CDS from longest to shortest
+    Sort all_CDS_list from longest to shortest
 
-    For each CDS segment:
-        Append to the output list of CDS
+    For each CDS in all_CDS_list:
+        Append to the CDS_output_list
         In the DNA region, mark the CDS segment as being covered
-        If the fraction of covered DNA region > target_covered_fraction:
+        If the fraction of covered DNA > target_covered_fraction:
             Break for loop
 
-    Return the output list of CDS
+    Return CDS_output_list
 
+## CDS Prediction Result
+
+To define a single metric measuring the accuracy of CDS prediction,
+genomic positions of all codons from the original annotation and CDS prediction were compared.
 The following figure shows overlap between true and predicted codon positions in each bacterial genome.
 Counts were shown with percentage of total number of codons in parenthesis.
 
 ![Venn diagram genomic condon positions](./experiments/experiment_007/experiment_007.png)
 
-A genomic region of *E. coli* showing high accuracy of CDS prediction.
+Finally, it's time to zoom in: a genomic region of *E. coli* showing high accuracy of CDS prediction.
 
 ![Gene diagram](./experiments/experiment_008/experiment_008.png)
