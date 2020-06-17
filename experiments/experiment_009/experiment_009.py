@@ -1,5 +1,5 @@
 import os
-from ngslite import orf_finder, get_files, genbank_to_fasta, make_genbank, call
+from ngslite import orf_finder, get_files, genbank_to_fasta, make_genbank
 
 
 def main():
@@ -13,6 +13,8 @@ def main():
 
     for gbk in gbks:
         fna = gbk[:-len('.gbff')] + '.fna'
+        if os.path.exists(fna):
+            continue
         genbank_to_fasta(
             file=os.path.join(srcdir, gbk),
             output=fna)
@@ -24,6 +26,8 @@ def main():
 
     for fna in fnas:
         gtf = fna[:-len('.fna')] + '.gtf'
+        if os.path.exists(gtf):
+            continue
         orf_finder(
             fasta=fna,
             output=gtf,
@@ -40,10 +44,6 @@ def main():
             gtf=gtf,
             output=f'{__file__[:-3]}_{gbk}',
             shape='circular')
-
-    call('rm *.fna *.gtf')
-    os.makedirs('outdir', exist_ok=True)
-    call('mv *.gbff outdir/')
 
 
 if __name__ == '__main__':

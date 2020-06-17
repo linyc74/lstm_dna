@@ -8,4 +8,5 @@ __pycache__/
 # Data / misc
 data/
 outdir/
+*.zip
 todo.txt
