@@ -4,6 +4,9 @@
 
 ## Model Architecture
 
+The LSTM model in this study is a nucleotide-based, many-to-many sequence mode.
+The model predicts whether each nucleotide is of CDS or not, i.e. binary classification.
+
 **Figure 1 - Bidirectional Nucleotide-based LSTM** <br>
 For input, each nucleotide is converted to a one-hot encoding vector of 4 elements.
 For output, the label for each nucleotide is binary, where 1 is CDS and 0 is non-CDS.
@@ -42,12 +45,12 @@ For output, the label for each nucleotide is binary, where 1 is CDS and 0 is non
 | 14 | NC_016845 | Klebsiella pneumoniae subsp. pneumoniae HS11286 chromosome, complete genome. |
 | 15 | NZ_CP009257 | Acinetobacter baumannii strain AB30 chromosome, complete genome. |
 
-For each genome, forward and reverse strands were encoded separately and concatenated.
+For each genome, forward and reverse strands were encoded separately for input and output data and then concatenated.
 All 15 genomes were concatenated as a super-genome sequence for training and testing.
 
 ## Training
 
-Due to vanishing and exploding gradients and performance consideration,
+Due to vanishing and exploding gradients as well as performance consideration,
 training an LSTM model on the full genome as the input sequence is not feasible.
 Thus, the full genome sequence is divided into segments of sequences,
 where each segment is deemed as a "sample".
@@ -100,9 +103,10 @@ The 4 predictions were averaged as the final prediction result, in which each nu
 ## Gene-level Prediction
 
 Contiguous coding sequence (CDS) features were inferred from nucleotide-level labels based heuristic rules of molecular biology.
-
-First, contiguous segments of positive (labeled "1") nucleotides were generated and encoded by the start and end positions.
+First, contiguous segments of positive (predicted "1") nucleotides were generated and encoded by the start and end positions.
 In a simple scenario, one contiguous segment represents a coding sequence without any stop codon interrupting the translation to protein sequence.
+In such case, that contiguous segment is directly annotated as a CDS feature.
+
 However, there are more complex scenarios where stop codons are present in the middle of a segment.
 This is usually due to overlap between two CDS, where the second CDS starts before the first CDS terminates at the stop codon.
 If the second CDS is not in-frame with the first one, then the frame-shift effect would create many false stop codons in the middle of a segment.
@@ -134,7 +138,7 @@ until the input DNA segment (or region) is covered by more than a target fractio
 
     Return CDS_output_list
 
-## LSTM is much better than ORFfinder
+## LSTM is much better than NCBI ORFfinder
 
 To measure the accuracy of CDS prediction on a genome-wide level,
 genomic positions of all codons were compared between true and predicted CDS features.
@@ -164,7 +168,7 @@ Interestingly, *Streptomyces coelicolor* and *Pseudomonas aeruginosa* showed low
 
 
 **Figure 5 -** ***E. coli hisJ*** **Locus** <br>
-The predicted CDS is nearly 100% accurate.
+The predicted CDS features are nearly perfect.
 
 <center>
 <img src="./experiments/experiment_008/experiment_008.png">
