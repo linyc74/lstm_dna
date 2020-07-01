@@ -154,7 +154,7 @@ def split(
         dim: int) \
         -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Split into training and experiment_007 sets on the <dim> dimension
+    Split into training and test sets on the <dim> dimension
     """
 
     n_samples = x.size()[0]
